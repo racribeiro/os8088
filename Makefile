@@ -4783,6 +4783,13 @@ $(BUILD)/video.bin: apps/video/video.asm apps/video/vdec.inc apps/video/vosd.inc
 $(BUILD)/video.o88: $(BUILD)/video.bin tools/os88pkg.py $(PKGZSTAMP)
 	$(OS88PKG) $(BUILD)/video.bin -o $@
 
+$(BUILD)/checkers.bin: apps/checkers/checkers.asm apps/os88api.inc | $(BUILD)
+	$(NASM) -f bin -w+error -I apps/ -I apps/checkers/ -o $@ apps/checkers/checkers.asm
+	@echo "checkers: $(call FILESIZE,$@) bytes"
+
+$(BUILD)/checkers.o88: $(BUILD)/checkers.bin tools/os88pkg.py
+	python3 tools/os88pkg.py $(BUILD)/checkers.bin -o $@
+
 # WIREFRAME (SPEC.md 78): a rotating solid drawn with nothing but
 # OSAPI_GFX_LINE, and a frame-rate readout, so 5.6.4.1's walk can be SEEN
 # rather than only measured. wiresin.inc is a generated constant table and is
@@ -11449,6 +11456,7 @@ APPS_TOOLS := $(BUILD)/artful.o88 $(BUILD)/browser.o88 $(BUILD)/calc.o88 \
               $(BUILD)/chart.o88 $(BUILD)/fractal.o88 \
               $(BUILD)/notepad.o88 \
               $(BUILD)/paint.o88 $(BUILD)/piano.o88 \
+              $(BUILD)/checkers.o88 \
               $(BUILD)/ftpd.o88 $(BUILD)/sheet.o88 $(BUILD)/telnet.o88 \
               $(BUILD)/texpad.o88 $(BUILD)/tracker.o88 $(BUILD)/audio.o88 \
               $(BUILD)/video.o88
