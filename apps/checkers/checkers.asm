@@ -149,8 +149,9 @@ ck_cell_xy:
     add bx, [ck_oy]
     ret
 
-; in AX/BX=square origin, [ck_piece_v]=piece.  A 14px circular span stencil reads as a
-; checker on all three adapters. Kings get a yellow inner frame.
+; in AX/BX=square origin, [ck_piece_v]=piece.  Pieces use one bounded fill,
+; keeping the foreground callback free of hand-rolled drawing loops. Kings
+; get a yellow inner frame.
 ck_piece:
     mov [ck_px], ax
     mov [ck_py], bx
@@ -165,32 +166,15 @@ ck_piece:
     mov al, CRED
 .pen:
     call OSAPI_SET_COLOR
-    mov si, ck_disc
-    xor di, di
-.row:
-    mov al, [si]
-    inc si
-    cmp al, 0FFh
-    je .king
-    cbw
-    add ax, [ck_px]
-    mov bx, ax
-    mov al, [si]
-    inc si
-    xor ah, ah
-    add ax, bx
-    dec ax
-    xchg ax, bx
-    mov dx, [ck_py]
-    add dx, di
-    ; SI/DI walk the span table.  Preserve them explicitly around each draw.
-    push si
-    push di
-    call OSAPI_GFX_HLINE
-    pop di
-    pop si
-    inc di
-    jmp short .row
+    mov ax, [ck_px]
+    add ax, 8
+    mov bx, [ck_py]
+    add bx, 8
+    mov cx, ax
+    add cx, 15
+    mov dx, bx
+    add dx, 15
+    call OSAPI_GFX_FILL
 .king:
     mov al, [ck_piece_v]
     cmp al, CK_RKING
@@ -502,9 +486,6 @@ ck_title: db 'Checkers',0
 ck_s_red: db 'Red to move',0
 ck_s_black: db 'Black to move',0
 ck_s_hint: db 'Click a piece,',0
-
-; offset, width pairs for a 14px disc; FF ends the table.
-ck_disc: db 6,4,4,8,3,10,2,12,1,14,1,14,1,14,2,12,3,10,4,8,6,4,0FFh
 
 ; 0 empty; red starts at the bottom and moves upward; black moves downward.
 ck_initial:
