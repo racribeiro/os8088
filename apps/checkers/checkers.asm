@@ -8,12 +8,13 @@
 
     OS88_HEADER 'CHECKERS', ck_entry, 1
 
-; A compact checkerboard glyph for the desktop.
+; The board itself, 8x8 cells at 2x2 pixels each: black squares are data,
+; white squares are the opaque mask's underlay.
     OS88_ICON16
-    dw 0x0000,0x3FFC,0x7FFE,0x7FFE,0xFFFF,0xFFFF,0xFFFF,0xFFFF
-    dw 0xFFFF,0xFFFF,0xFFFF,0xFFFF,0x7FFE,0x7FFE,0x3FFC,0x0000
-    dw 0x0000,0x3FFC,0x4002,0x4A52,0x552A,0x2A55,0x552A,0x2A55
-    dw 0x552A,0x2A55,0x552A,0x2A55,0x4002,0x4002,0x3FFC,0x0000
+    dw 0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF
+    dw 0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF,0xFFFF
+    dw 0xCCCC,0xCCCC,0x3333,0x3333,0xCCCC,0xCCCC,0x3333,0x3333
+    dw 0xCCCC,0xCCCC,0x3333,0x3333,0xCCCC,0xCCCC,0x3333,0x3333
     OS88_ICON16_END
 
 CK_W equ 370
@@ -55,6 +56,9 @@ ck_paint:
     push dx
     push si
     mov bx, si
+    call OSAPI_WM_CLIP_SET
+    jc .out
+    mov bx, si
     call OSAPI_WM_CONTENT
     add ax, CK_X
     mov [ck_ox], ax
@@ -62,6 +66,7 @@ ck_paint:
     mov [ck_oy], dx
     call ck_board
     call ck_status
+.out:
     pop si
     pop dx
     pop cx
@@ -178,7 +183,12 @@ ck_piece:
     xchg ax, bx
     mov dx, [ck_py]
     add dx, di
+    ; SI/DI walk the span table.  Preserve them explicitly around each draw.
+    push si
+    push di
     call OSAPI_GFX_HLINE
+    pop di
+    pop si
     inc di
     jmp short .row
 .king:
