@@ -119,6 +119,7 @@ ck_board:
     mov al, [ck_board_data+bx]
     or al, al
     jz .next
+    mov [ck_piece_v], al
     mov ax, [ck_px]
     mov bx, [ck_py]
     call ck_piece
@@ -143,12 +144,12 @@ ck_cell_xy:
     add bx, [ck_oy]
     ret
 
-; in AX/BX=square origin, AL=piece.  A 14px circular span stencil reads as a
+; in AX/BX=square origin, [ck_piece_v]=piece.  A 14px circular span stencil reads as a
 ; checker on all three adapters. Kings get a yellow inner frame.
 ck_piece:
     mov [ck_px], ax
     mov [ck_py], bx
-    mov [ck_piece_v], al
+    mov al, [ck_piece_v]
     cmp al, CK_RED
     je .red
     cmp al, CK_RKING
