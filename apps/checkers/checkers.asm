@@ -20,7 +20,7 @@
 CK_W equ 550
 CK_H equ 310
 CK_X equ 12
-CK_Y equ 30
+CK_Y equ 18
 CK_SQ equ 32
 CK_SEL equ 0FFh
 CK_EMPTY equ 0
@@ -491,7 +491,7 @@ ck_target_legal:
     push dx
     push si
     mov ah, [ck_target]
-    mov [ck_probe], ah              ; painting must not change click state
+    mov [ck_saved_target], ah       ; painting must not change click state
     cmp byte [ck_selected], CK_SEL
     je .no
     mov [ck_target], al
@@ -576,7 +576,7 @@ ck_target_legal:
 .yes:
     stc
 .out:
-    mov al, [ck_probe]
+    mov al, [ck_saved_target]
     mov [ck_target], al
     pop si
     pop dx
@@ -591,19 +591,19 @@ ck_piece_has_move:
     push cx
     push dx
     push si
-    mov [ck_probe], al
+    mov [ck_move_src], al
     call ck_any_capture
     jnc .quiet
-    mov al, [ck_probe]
+    mov al, [ck_move_src]
     call ck_piece_has_capture
     jmp short .out
 .quiet:
-    mov al, [ck_probe]
+    mov al, [ck_move_src]
     call ck_rowcol
     mov [ck_pr], ah
     mov [ck_pc], al
     xor bx, bx
-    mov bl, [ck_probe]
+    mov bl, [ck_move_src]
     mov al, [ck_board_data+bx]
     cmp al, CK_RKING
     je .king
@@ -909,7 +909,7 @@ ck_initial:
     db 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0
     db 1,0,1,0,1,0,1,0, 0,1,0,1,0,1,0,1, 1,0,1,0,1,0,1,0
 
-    OS88_BSS 93
+    OS88_BSS 95
     OS88_IMAGE_END
 ck_ox equ os88_image_end+0
 ck_oy equ os88_image_end+2
@@ -935,3 +935,5 @@ ck_pr equ os88_image_end+87
 ck_pc equ os88_image_end+88
 ck_lr equ os88_image_end+89
 ck_lc equ os88_image_end+90
+ck_move_src equ os88_image_end+91
+ck_saved_target equ os88_image_end+92
