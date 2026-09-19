@@ -252,18 +252,11 @@ ck_onclick:
     jae .out
     cmp dx, 256
     jae .out
-    mov ax, dx
-    mov cl, 5
-    shr ax, cl
-    mov bx, ax
-    mov ax, cx
-    mov cl, 5
-    shr ax, cl
-    add bx, bx
-    add bx, bx
-    add bx, bx
-    add bx, ax
-    mov [ck_target], bl
+    ; Board storage is always index = row * 8 + column.  Keep this conversion
+    ; in one helper: swapping the two here transposes clicks while drawing and
+    ; move validation still use the normal row-major board.
+    call ck_point_index
+    mov [ck_target], al
     cmp byte [ck_selected], CK_SEL
     jne .move
     call ck_select
@@ -464,6 +457,21 @@ ck_rowcol:
     and al, 7
     mov cl, 3
     shr ah, cl
+    ret
+
+; CX/DX are board-relative pixels (both already known to be below 256).
+; Return AL = row * 8 + column.  This is the sole pixel-to-board conversion;
+; ck_cell_xy is its inverse and ck_rowcol is the index-level decomposition.
+ck_point_index:
+    mov bx, cx                      ; column before CL is used as a shift count
+    mov ax, dx                      ; row
+    mov cl, 5
+    shr ax, cl
+    add ax, ax
+    add ax, ax
+    add ax, ax                      ; row * 8
+    shr bx, cl                      ; column
+    add ax, bx
     ret
 ck_abs:
     test al, al
