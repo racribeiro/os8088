@@ -119,6 +119,21 @@ ck_board:
     add dx, CK_SQ-1
     call OSAPI_GFX_FRAME
 .piece:
+    mov al, [ck_i]
+    call ck_target_legal
+    jnc .draw_piece
+    mov al, CWHITE
+    call OSAPI_SET_COLOR
+    mov ax, [ck_px]
+    add ax, 12
+    mov bx, [ck_py]
+    add bx, 12
+    mov cx, ax
+    add cx, 7
+    mov dx, bx
+    add dx, 7
+    call OSAPI_GFX_FILL             ; legal-destination marker
+.draw_piece:
     xor bx, bx
     mov bl, [ck_i]
     mov al, [ck_board_data+bx]
@@ -149,48 +164,27 @@ ck_cell_xy:
     add bx, [ck_oy]
     ret
 
-; in AX/BX=square origin, [ck_piece_v]=piece.  Two bounded raster discs make
-; a circular man: black with a white border, or white with a black border.
-; Kings get a yellow inner frame.
+; AX/BX=square origin, [ck_piece_v]=piece.  A single masked 16px sprite gives
+; each man a stable two-colour disc: its mask is the rim and its data is the
+; centre.  This avoids every scanline sharing the board's working coordinates.
 ck_piece:
-    push ax
-    push bx
+    mov cx, ax
+    add cx, 8
+    mov dx, bx
+    add dx, 8
     mov al, [ck_piece_v]
     cmp al, CK_RED
     je .white
     cmp al, CK_RKING
     je .white
-    mov al, CWHITE
-    jmp short .outer
+    mov ax, (CBLACK << 8) | CWHITE ; black centre, white rim
+    jmp short .draw
 .white:
-    mov al, CBLACK
-.outer:
-    call OSAPI_SET_COLOR
-    pop bx                          ; restore the square origin after AL=colour
-    pop ax
-    push ax
-    push bx
-    add ax, 6
-    add bx, 6
-    mov si, ck_disc_outer
-    call ck_disc_draw
-    pop bx
-    pop ax
-    mov al, [ck_piece_v]
-    cmp al, CK_RED
-    je .inner_white
-    cmp al, CK_RKING
-    je .inner_white
-    mov al, CBLACK
-    jmp short .inner
-.inner_white:
-    mov al, CWHITE
-.inner:
-    call OSAPI_SET_COLOR
-    add ax, 8
-    add bx, 8
-    mov si, ck_disc_inner
-    call ck_disc_draw
+    mov ax, (CWHITE << 8) | CBLACK ; white centre, black rim
+.draw:
+    call OSAPI_ICON_PEN
+    mov si, ck_piece_sprite
+    call OSAPI_ICON_DRAW
 .king:
     mov al, [ck_piece_v]
     cmp al, CK_RKING
@@ -200,44 +194,15 @@ ck_piece:
 .crown:
     mov al, CYELLOW
     call OSAPI_SET_COLOR
-    mov ax, [ck_px]
-    add ax, 4                       ; inner-disc origin is square + 8
-    mov bx, [ck_py]
+    mov ax, cx
+    add ax, 4
+    mov bx, dx
     add bx, 4
     mov cx, ax
     add cx, 7
     mov dx, bx
     add dx, 7
     call OSAPI_GFX_FRAME
-.out:
-    ret
-
-; AX/BX = raster origin; SI = pairs of x offset and inclusive width, ending
-; in FFh.  The tables make each horizontal run finite and keep a piece inside
-; its own 32px square.
-ck_disc_draw:
-    mov [ck_px], ax
-    mov [ck_py], bx
-    xor di, di
-.row:
-    mov al, [si]
-    inc si
-    cmp al, 0FFh
-    je .out
-    cbw
-    add ax, [ck_px]
-    mov bx, ax
-    mov al, [si]
-    inc si
-    xor ah, ah
-    add ax, bx
-    dec ax
-    xchg ax, bx                    ; AX=x1, BX=x2 for gfx_hline
-    mov dx, [ck_py]
-    add dx, di
-    call OSAPI_GFX_HLINE
-    inc di
-    jmp short .row
 .out:
     ret
 
@@ -516,6 +481,104 @@ ck_dark_square:
     test al, 1
     ret
 
+; AL=destination index.  CF=1 means the currently selected man may be shown
+; as moving there under the active mandatory-capture rule.  This is a pure
+; preview: it never changes the board or the selected piece.
+ck_target_legal:
+    push bx
+    push cx
+    push dx
+    push si
+    cmp byte [ck_selected], CK_SEL
+    je .no
+    mov [ck_target], al
+    xor bx, bx
+    mov bl, al
+    cmp byte [ck_board_data+bx], CK_EMPTY
+    jne .no
+    call ck_dark_square
+    jz .no
+    xor bx, bx
+    mov bl, [ck_selected]
+    mov al, [ck_board_data+bx]
+    mov [ck_piece_v], al
+    call ck_any_capture
+    mov byte [ck_force], 0
+    jnc .force_done
+    mov byte [ck_force], 1
+.force_done:
+    mov al, [ck_selected]
+    call ck_rowcol
+    mov [ck_sr], ah
+    mov [ck_sc], al
+    mov al, [ck_target]
+    call ck_rowcol
+    mov [ck_dr], ah
+    mov [ck_dc], al
+    mov al, [ck_dr]
+    sub al, [ck_sr]
+    mov [ck_drow], al
+    mov al, [ck_dc]
+    sub al, [ck_sc]
+    mov [ck_dcol], al
+    mov al, [ck_drow]
+    call ck_abs
+    cmp al, 1
+    je .step
+    cmp al, 2
+    jne .no
+    mov al, [ck_dcol]
+    call ck_abs
+    cmp al, 2
+    jne .no
+    mov al, [ck_sr]
+    add al, [ck_dr]
+    shr al, 1
+    mov ah, al
+    mov al, [ck_sc]
+    add al, [ck_dc]
+    shr al, 1
+    mov cl, 3
+    shl ah, cl
+    add al, ah
+    xor ah, ah
+    mov bx, ax
+    mov al, [ck_board_data+bx]
+    call ck_is_enemy
+    jc .yes
+    jmp short .no
+.step:
+    cmp byte [ck_force], 0
+    jne .no
+    mov al, [ck_dcol]
+    call ck_abs
+    cmp al, 1
+    jne .no
+    mov al, [ck_piece_v]
+    cmp al, CK_RKING
+    je .yes
+    cmp al, CK_BKING
+    je .yes
+    cmp al, CK_RED
+    jne .black
+    cmp byte [ck_drow], 0
+    jl .yes
+    jmp short .no
+.black:
+    cmp byte [ck_drow], 0
+    jg .yes
+.no:
+    clc
+    jmp short .out
+.yes:
+    stc
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
 ; CF=1 when AL is a piece belonging to [ck_turn].  Ghost/empty values are
 ; never accepted as a selectable piece.
 ck_is_own:
@@ -731,15 +794,13 @@ ck_s_red: db 'White to move',0
 ck_s_black: db 'Black to move',0
 ck_s_hint: db 'Select a piece, then move.',0
 
-; (x offset, inclusive run width) rows for 20px and 16px circles.
-ck_disc_outer:
-    db 8,4, 5,10, 3,14, 2,16, 1,18, 1,18
-    db 0,20, 0,20, 0,20, 0,20, 0,20, 0,20, 0,20, 0,20
-    db 1,18, 1,18, 2,16, 3,14, 5,10, 8,4, 0FFh
-ck_disc_inner:
-    db 6,4, 4,8, 2,12, 1,14
-    db 0,16, 0,16, 0,16, 0,16, 0,16, 0,16, 0,16, 0,16
-    db 1,14, 2,12, 4,8, 6,4, 0FFh
+; 16px masked disc.  MASK lays the rim; DATA lays the centre over that rim.
+ck_piece_sprite:
+    db 1,16
+    dw 0x0000,0x0FF0,0x1FF8,0x3FFC,0x7FFE,0x7FFE,0xFFFF,0xFFFF
+    dw 0xFFFF,0xFFFF,0x7FFE,0x7FFE,0x3FFC,0x1FF8,0x0FF0,0x0000
+    dw 0x0000,0x0000,0x0000,0x0FF0,0x1FF8,0x3FFC,0x3FFC,0x7FFE
+    dw 0x7FFE,0x3FFC,0x3FFC,0x1FF8,0x0FF0,0x0000,0x0000,0x0000
 
 ; Four diagonal (row,column) directions for jump discovery.
 ck_dirs: db -1,-1, -1,1, 1,-1, 1,1
