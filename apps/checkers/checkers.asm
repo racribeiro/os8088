@@ -17,7 +17,7 @@
     dw 0xCCCC,0xCCCC,0x3333,0x3333,0xCCCC,0xCCCC,0x3333,0x3333
     OS88_ICON16_END
 
-CK_W equ 500
+CK_W equ 550
 CK_H equ 310
 CK_X equ 12
 CK_Y equ 30
@@ -161,24 +161,29 @@ ck_piece:
     cmp al, CK_RKING
     je .white
     mov al, CWHITE
-    call OSAPI_SET_COLOR
-    add ax, 6
-    add bx, 6
-    mov si, ck_disc_outer
-    call ck_disc_draw
-    pop bx
-    pop ax
-    mov al, CBLACK
-    jmp short .inner
+    jmp short .outer
 .white:
     mov al, CBLACK
+.outer:
     call OSAPI_SET_COLOR
+    pop bx                          ; restore the square origin after AL=colour
+    pop ax
+    push ax
+    push bx
     add ax, 6
     add bx, 6
     mov si, ck_disc_outer
     call ck_disc_draw
     pop bx
     pop ax
+    mov al, [ck_piece_v]
+    cmp al, CK_RED
+    je .inner_white
+    cmp al, CK_RKING
+    je .inner_white
+    mov al, CBLACK
+    jmp short .inner
+.inner_white:
     mov al, CWHITE
 .inner:
     call OSAPI_SET_COLOR
@@ -514,7 +519,7 @@ ck_repaint:
     ret
 
 ck_tpl:
-    dw 70, 75, CK_W, CK_H
+    dw 45, 75, CK_W, CK_H
     dw ck_title, ck_paint, 0, ck_onclick
     OS88_MENUSET ck_menus, ck_name, ck_oncmd
         OS88_MENU ck_m_game, ck_i_game, 1
