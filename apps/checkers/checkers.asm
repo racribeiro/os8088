@@ -31,7 +31,6 @@ CK_BKING equ 4
 
 ck_entry:
     push ax
-    push bx
     push cx
     push si
     mov si, ck_tpl
@@ -44,7 +43,6 @@ ck_entry:
 .out:
     pop si
     pop cx
-    pop bx
     pop ax
     ret
 
@@ -432,6 +430,7 @@ ck_reset:
     mov si, ck_initial
     mov di, ck_board_data
     mov cx, 64
+    cld                             ; string operations must always advance
     rep movsb
     pop es
     mov byte [ck_turn], CK_RED
