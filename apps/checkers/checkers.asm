@@ -17,7 +17,7 @@
     dw 0xCCCC,0xCCCC,0x3333,0x3333,0xCCCC,0xCCCC,0x3333,0x3333
     OS88_ICON16_END
 
-CK_W equ 370
+CK_W equ 500
 CK_H equ 310
 CK_X equ 12
 CK_Y equ 30
@@ -53,6 +53,7 @@ ck_paint:
     push cx
     push dx
     push si
+    push di
     mov bx, si
     call OSAPI_WM_CLIP_SET
     jc .out
@@ -65,6 +66,7 @@ ck_paint:
     call ck_board
     call ck_status
 .out:
+    pop di
     pop si
     pop dx
     pop cx
@@ -91,10 +93,10 @@ ck_board:
     xor al, ah
     test al, 1
     jz .light
-    mov al, CBROWN
+    mov al, CDGRAY
     jmp short .fill
 .light:
-    mov al, CWHITE
+    mov al, CLGRAY
 .fill:
     call OSAPI_SET_COLOR
     mov ax, [ck_px]
@@ -147,32 +149,43 @@ ck_cell_xy:
     add bx, [ck_oy]
     ret
 
-; in AX/BX=square origin, [ck_piece_v]=piece.  Pieces use one bounded fill,
-; keeping the foreground callback free of hand-rolled drawing loops. Kings
-; get a yellow inner frame.
+; in AX/BX=square origin, [ck_piece_v]=piece.  Two bounded raster discs make
+; a circular man: black with a white border, or white with a black border.
+; Kings get a yellow inner frame.
 ck_piece:
-    mov [ck_px], ax
-    mov [ck_py], bx
+    push ax
+    push bx
     mov al, [ck_piece_v]
     cmp al, CK_RED
-    je .red
+    je .white
     cmp al, CK_RKING
-    je .red
-    mov al, CBLACK
-    jmp short .pen
-.red:
-    mov al, CRED
-.pen:
+    je .white
+    mov al, CWHITE
     call OSAPI_SET_COLOR
-    mov ax, [ck_px]
+    add ax, 6
+    add bx, 6
+    mov si, ck_disc_outer
+    call ck_disc_draw
+    pop bx
+    pop ax
+    mov al, CBLACK
+    jmp short .inner
+.white:
+    mov al, CBLACK
+    call OSAPI_SET_COLOR
+    add ax, 6
+    add bx, 6
+    mov si, ck_disc_outer
+    call ck_disc_draw
+    pop bx
+    pop ax
+    mov al, CWHITE
+.inner:
+    call OSAPI_SET_COLOR
     add ax, 8
-    mov bx, [ck_py]
     add bx, 8
-    mov cx, ax
-    add cx, 15
-    mov dx, bx
-    add dx, 15
-    call OSAPI_GFX_FILL
+    mov si, ck_disc_inner
+    call ck_disc_draw
 .king:
     mov al, [ck_piece_v]
     cmp al, CK_RKING
@@ -183,14 +196,43 @@ ck_piece:
     mov al, CYELLOW
     call OSAPI_SET_COLOR
     mov ax, [ck_px]
-    add ax, 12
+    add ax, 4                       ; inner-disc origin is square + 8
     mov bx, [ck_py]
-    add bx, 12
+    add bx, 4
     mov cx, ax
     add cx, 7
     mov dx, bx
     add dx, 7
     call OSAPI_GFX_FRAME
+.out:
+    ret
+
+; AX/BX = raster origin; SI = pairs of x offset and inclusive width, ending
+; in FFh.  The tables make each horizontal run finite and keep a piece inside
+; its own 32px square.
+ck_disc_draw:
+    mov [ck_px], ax
+    mov [ck_py], bx
+    xor di, di
+.row:
+    mov al, [si]
+    inc si
+    cmp al, 0FFh
+    je .out
+    cbw
+    add ax, [ck_px]
+    mov bx, ax
+    mov al, [si]
+    inc si
+    xor ah, ah
+    add ax, bx
+    dec ax
+    xchg ax, bx                    ; AX=x1, BX=x2 for gfx_hline
+    mov dx, [ck_py]
+    add dx, di
+    call OSAPI_GFX_HLINE
+    inc di
+    jmp short .row
 .out:
     ret
 
@@ -201,7 +243,7 @@ ck_status:
     mov si, ck_s_black
 .draw:
     mov cx, [ck_ox]
-    add cx, 268
+    add cx, 280
     mov dx, [ck_oy]
     add dx, 18
     mov ax, (CWHITE << 8) | CBLACK
@@ -472,7 +514,7 @@ ck_repaint:
     ret
 
 ck_tpl:
-    dw 120, 75, CK_W, CK_H
+    dw 70, 75, CK_W, CK_H
     dw ck_title, ck_paint, 0, ck_onclick
     OS88_MENUSET ck_menus, ck_name, ck_oncmd
         OS88_MENU ck_m_game, ck_i_game, 1
@@ -482,9 +524,19 @@ ck_m_game: db 'Game',0
 ck_i_game: dw ck_i_new
 ck_i_new: db 'New Game',0
 ck_title: db 'Checkers',0
-ck_s_red: db 'Red to move',0
+ck_s_red: db 'White to move',0
 ck_s_black: db 'Black to move',0
-ck_s_hint: db 'Click a piece,',0
+ck_s_hint: db 'Select a piece, then move.',0
+
+; (x offset, inclusive run width) rows for 20px and 16px circles.
+ck_disc_outer:
+    db 8,4, 5,10, 3,14, 2,16, 1,18, 1,18
+    db 0,20, 0,20, 0,20, 0,20, 0,20, 0,20, 0,20, 0,20
+    db 1,18, 1,18, 2,16, 3,14, 5,10, 8,4, 0FFh
+ck_disc_inner:
+    db 6,4, 4,8, 2,12, 1,14
+    db 0,16, 0,16, 0,16, 0,16, 0,16, 0,16, 0,16, 0,16
+    db 1,14, 2,12, 4,8, 6,4, 0FFh
 
 ; 0 empty; red starts at the bottom and moves upward; black moves downward.
 ck_initial:
