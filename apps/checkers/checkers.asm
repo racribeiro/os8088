@@ -291,17 +291,18 @@ ck_select:
     cmp byte [ck_turn], CK_RED
     jne .black
     cmp al, CK_RKING
-    jne .out
+    jne .clear
     jmp short .yes
 .black:
     cmp al, CK_BKING
-    jne .out
+    jne .clear
 .yes:
-    call ck_any_capture
-    jnc .select
     mov al, [ck_target]
-    call ck_piece_has_capture
-    jnc .out                         ; a capture elsewhere is compulsory
+    call ck_piece_has_move
+    jc .select
+.clear:
+    mov byte [ck_selected], CK_SEL
+    ret
 .select:
     mov al, [ck_target]
     mov [ck_selected], al
@@ -489,6 +490,8 @@ ck_target_legal:
     push cx
     push dx
     push si
+    mov ah, [ck_target]
+    mov [ck_probe], ah              ; painting must not change click state
     cmp byte [ck_selected], CK_SEL
     je .no
     mov [ck_target], al
@@ -573,10 +576,105 @@ ck_target_legal:
 .yes:
     stc
 .out:
+    mov al, [ck_probe]
+    mov [ck_target], al
     pop si
     pop dx
     pop cx
     pop bx
+    ret
+
+; AL=source index, CF=1 when that piece has at least one legal move.  If a
+; capture exists anywhere, the source must itself be able to capture.
+ck_piece_has_move:
+    push bx
+    push cx
+    push dx
+    push si
+    mov [ck_probe], al
+    call ck_any_capture
+    jnc .quiet
+    mov al, [ck_probe]
+    call ck_piece_has_capture
+    jmp short .out
+.quiet:
+    mov al, [ck_probe]
+    call ck_rowcol
+    mov [ck_pr], ah
+    mov [ck_pc], al
+    xor bx, bx
+    mov bl, [ck_probe]
+    mov al, [ck_board_data+bx]
+    cmp al, CK_RKING
+    je .king
+    cmp al, CK_BKING
+    je .king
+    cmp al, CK_RED
+    jne .black
+    mov bl, -1
+    call ck_forward_empty
+    jmp short .out
+.black:
+    mov bl, 1
+    call ck_forward_empty
+    jmp short .out
+.king:
+    mov bl, -1
+    call ck_forward_empty
+    jc .out
+    mov bl, 1
+    call ck_forward_empty
+.out:
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    ret
+
+; BL is a one-row direction. CF=1 if either adjacent diagonal is empty.
+ck_forward_empty:
+    mov al, [ck_pr]
+    add al, bl
+    cmp al, 7
+    ja .no
+    mov [ck_lr], al
+    mov al, [ck_pc]
+    dec al
+    cmp al, 7
+    ja .right
+    mov [ck_lc], al
+    call ck_landing_empty
+    jc .yes
+.right:
+    mov al, [ck_pc]
+    inc al
+    cmp al, 7
+    ja .no
+    mov [ck_lc], al
+    call ck_landing_empty
+    jc .yes
+.no:
+    clc
+    ret
+.yes:
+    stc
+    ret
+
+; [ck_lr],[ck_lc] is on-board. CF=1 only when that square is empty.
+ck_landing_empty:
+    mov al, [ck_lr]
+    shl al, 1
+    shl al, 1
+    shl al, 1
+    add al, [ck_lc]
+    xor ah, ah
+    mov si, ax
+    cmp byte [ck_board_data+si], CK_EMPTY
+    jne .no
+    stc
+    ret
+.no:
+    clc
     ret
 
 ; CF=1 when AL is a piece belonging to [ck_turn].  Ghost/empty values are
