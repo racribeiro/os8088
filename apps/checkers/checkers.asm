@@ -1,6 +1,6 @@
 ; =============================================================================
 ; CHECKERS -- local two-player draughts on an 8 x 8 board.
-; Click a piece, then a highlighted destination. Red moves down; black up.
+; Click a piece, then a legal destination. White moves up; black down.
 ; Men promote at the far rank. Captures are supported (including kings).
 ; =============================================================================
 
@@ -332,6 +332,12 @@ ck_select:
     cmp al, CK_BKING
     jne .out
 .yes:
+    call ck_any_capture
+    jnc .select
+    mov al, [ck_target]
+    call ck_piece_has_capture
+    jnc .out                         ; a capture elsewhere is compulsory
+.select:
     mov al, [ck_target]
     mov [ck_selected], al
 .out:
@@ -344,10 +350,18 @@ ck_try_move:
     mov bl, [ck_selected]
     mov al, [ck_board_data+bx]
     mov [ck_piece_v], al
+    call ck_any_capture
+    mov byte [ck_force], 0
+    jnc .force_done
+    mov byte [ck_force], 1
+.force_done:
     xor bx, bx
     mov bl, [ck_target]
     cmp byte [ck_board_data+bx], CK_EMPTY
     jne .out
+    mov al, [ck_target]
+    call ck_dark_square
+    jz .out                         ; pieces never occupy a light square
     mov al, [ck_selected]
     call ck_rowcol
     mov [ck_sr], ah
@@ -373,11 +387,19 @@ ck_try_move:
     jmp short .rdir
 .step:
     mov byte [ck_jump], 0
+    mov al, [ck_dcol]
+    call ck_abs
+    cmp al, 1
+    jne .out
+    jmp short .direction
 .rdir:
     mov al, [ck_dcol]
     call ck_abs
-    cmp al, [ck_jump]
+    cmp al, 2
     jne .out
+.direction:
+    cmp byte [ck_jump], 0
+    jne .legal                       ; men may capture in either direction
     ; A man may only move forward; a king may use either row direction.
     mov al, [ck_piece_v]
     cmp al, CK_RKING
@@ -394,7 +416,11 @@ ck_try_move:
     jle .out
 .legal:
     cmp byte [ck_jump], 0
-    je .apply
+    jne .capture_check
+    cmp byte [ck_force], 0
+    jne .out                         ; capture is mandatory
+    jmp short .apply
+.capture_check:
     ; midpoint must contain the other colour
     mov al, [ck_sr]
     add al, [ck_dr]
@@ -432,12 +458,14 @@ ck_try_move:
     xor bx, bx
     mov bl, [ck_target]
     mov al, [ck_piece_v]
+    mov byte [ck_promoted], 0
     ; promotion when a man reaches its far edge
     cmp al, CK_RED
     jne .blackprom
     cmp byte [ck_dr], 0
     jne .store
     mov al, CK_RKING
+    mov byte [ck_promoted], 1
     jmp short .store
 .blackprom:
     cmp al, CK_BLACK
@@ -445,8 +473,20 @@ ck_try_move:
     cmp byte [ck_dr], 7
     jne .store
     mov al, CK_BKING
+    mov byte [ck_promoted], 1
 .store:
     mov [ck_board_data+bx], al
+    cmp byte [ck_jump], 0
+    je .finish
+    cmp byte [ck_promoted], 0
+    jne .finish                      ; crowning ends a capture sequence
+    mov al, [ck_target]
+    call ck_piece_has_capture
+    jnc .finish
+    mov al, [ck_target]
+    mov [ck_selected], al            ; same piece must continue capturing
+    ret
+.finish:
     mov byte [ck_selected], CK_SEL
     xor byte [ck_turn], 3           ; 1 <-> 2
 .out:
@@ -464,6 +504,164 @@ ck_abs:
     jns .out
     neg al
 .out:
+    ret
+
+; AL=index -> ZF=0 for a dark (playable) square, ZF=1 for a light one.
+ck_dark_square:
+    mov ah, al
+    and al, 7
+    mov cl, 3
+    shr ah, cl
+    xor al, ah
+    test al, 1
+    ret
+
+; CF=1 when AL is a piece belonging to [ck_turn].  Ghost/empty values are
+; never accepted as a selectable piece.
+ck_is_own:
+    cmp byte [ck_turn], CK_RED
+    jne .black
+    cmp al, CK_RED
+    je .yes
+    cmp al, CK_RKING
+    je .yes
+    clc
+    ret
+.black:
+    cmp al, CK_BLACK
+    je .yes
+    cmp al, CK_BKING
+    jne .no
+.yes:
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; CF=1 when AL is an opponent piece of [ck_turn].
+ck_is_enemy:
+    or al, al
+    jz .no
+    cmp byte [ck_turn], CK_RED
+    jne .black
+    cmp al, CK_BLACK
+    je .yes
+    cmp al, CK_BKING
+    je .yes
+    jmp short .no
+.black:
+    cmp al, CK_RED
+    je .yes
+    cmp al, CK_RKING
+    jne .no
+.yes:
+    stc
+    ret
+.no:
+    clc
+    ret
+
+; CF=1 if any piece of the player to move has an adjacent jump.  It is used
+; before selection and before a quiet move, so a player cannot evade a capture.
+ck_any_capture:
+    push ax
+    push bx
+    push si
+    xor si, si
+.scan:
+    cmp si, 64
+    jae .no
+    mov al, [ck_board_data+si]
+    call ck_is_own
+    jnc .next
+    mov ax, si
+    call ck_piece_has_capture
+    jc .yes
+.next:
+    inc si
+    jmp short .scan
+.yes:
+    stc
+    jmp short .out
+.no:
+    clc
+.out:
+    pop si
+    pop bx
+    pop ax
+    ret
+
+; AL=source index, CF=1 if it has a legal two-square jump in one of the four
+; diagonal directions.  Men intentionally use all four directions here: only
+; their quiet move is forward-only.
+ck_piece_has_capture:
+    push ax
+    push bx
+    push cx
+    push dx
+    push si
+    push di
+    mov [ck_probe], al
+    call ck_rowcol
+    mov [ck_pr], ah
+    mov [ck_pc], al
+    mov si, ck_dirs
+    mov cx, 4
+.dir:
+    mov bl, [si]                     ; row delta
+    mov bh, [si+1]                   ; column delta
+    mov al, [ck_pr]
+    add al, bl
+    add al, bl
+    js .next
+    cmp al, 7
+    ja .next
+    mov [ck_lr], al
+    mov al, [ck_pc]
+    add al, bh
+    add al, bh
+    js .next
+    cmp al, 7
+    ja .next
+    mov [ck_lc], al
+    mov al, [ck_lr]
+    shl al, 1
+    shl al, 1
+    shl al, 1
+    add al, [ck_lc]
+    xor ah, ah
+    mov di, ax
+    mov al, [ck_board_data+di]
+    or al, al
+    jnz .next
+    mov al, [ck_pr]
+    add al, bl
+    shl al, 1
+    shl al, 1
+    shl al, 1
+    mov dl, [ck_pc]
+    add dl, bh
+    add al, dl
+    xor ah, ah
+    mov di, ax
+    mov al, [ck_board_data+di]
+    call ck_is_enemy
+    jc .yes
+.next:
+    add si, 2
+    loop .dir
+    clc
+    jmp short .out
+.yes:
+    stc
+.out:
+    pop di
+    pop si
+    pop dx
+    pop cx
+    pop bx
+    pop ax
     ret
 
 ; New Game menu action and initial package state.
@@ -543,13 +741,16 @@ ck_disc_inner:
     db 0,16, 0,16, 0,16, 0,16, 0,16, 0,16, 0,16, 0,16
     db 1,14, 2,12, 4,8, 6,4, 0FFh
 
-; 0 empty; red starts at the bottom and moves upward; black moves downward.
+; Four diagonal (row,column) directions for jump discovery.
+ck_dirs: db -1,-1, -1,1, 1,-1, 1,1
+
+; 0 empty; white starts at the bottom and moves upward; black moves downward.
 ck_initial:
     db 0,2,0,2,0,2,0,2, 2,0,2,0,2,0,2,0, 0,2,0,2,0,2,0,2
     db 0,0,0,0,0,0,0,0, 0,0,0,0,0,0,0,0
     db 1,0,1,0,1,0,1,0, 0,1,0,1,0,1,0,1, 1,0,1,0,1,0,1,0
 
-    OS88_BSS 86
+    OS88_BSS 93
     OS88_IMAGE_END
 ck_ox equ os88_image_end+0
 ck_oy equ os88_image_end+2
@@ -568,3 +769,10 @@ ck_drow equ os88_image_end+17
 ck_dcol equ os88_image_end+18
 ck_jump equ os88_image_end+19
 ck_board_data equ os88_image_end+20
+ck_force equ os88_image_end+84
+ck_promoted equ os88_image_end+85
+ck_probe equ os88_image_end+86
+ck_pr equ os88_image_end+87
+ck_pc equ os88_image_end+88
+ck_lr equ os88_image_end+89
+ck_lc equ os88_image_end+90
