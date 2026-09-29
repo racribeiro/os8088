@@ -104,7 +104,19 @@ SHIPIMGS := $(IMG) $(IMG120) $(IMG720) $(IMG360) \
             $(APPSIMG) $(APPSIMG120) $(APPSIMG720) $(APPSIMG360) \
             $(MEDIAIMG360) $(OFFICEIMG360) $(NETWORKIMG360) $(GAMESIMG360)
 
-BOX   := /Applications/86Box.app/Contents/MacOS/86Box
+# 86Box is normally installed as `86Box` on Linux (or made available through
+# PATH) and as an app bundle on macOS.  Keep BOX overridable for packaged or
+# locally-built versions.
+ifeq ($(shell uname -s),Darwin)
+BOX   ?= /Applications/86Box.app/Contents/MacOS/86Box
+else
+BOX   ?= 86Box
+endif
+BOXROM ?=
+BOXROMARG = $(if $(BOXROM),-R $(BOXROM))
+PENTIUM_VNC_PORT ?= 5901
+PENTIUM_NOVNC_PORT ?= 6081
+PENTIUM_VNC_STATE_DIR ?= /tmp/os8088-pentium-vnc
 
 # RESET= clears a machine's non-volatile state on the way in, and it reaches
 # EVERY 86Box target at once because all twenty-three of them launch through
@@ -13580,11 +13592,27 @@ marty: $(IMG360)
 # screen wanting a CMOS - same one-time cost per VM directory as the 286.
 486: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VM486)/86box.cfg
-	$(BOX) -P $(VM486) -N
+	$(BOX) $(BOXROMARG) -P $(VM486) -N
 
 pentium: $(IMG) $(APPSIMG)
 	@$(UNPROTECT) $(VMPENT)/86box.cfg
-	$(BOX) -P $(VMPENT) -N
+	$(BOX) $(BOXROMARG) -P $(VMPENT) -N
+
+# A browser-accessible 86Box session.  The normal Docker VM keeps using
+# :5900/:6080; this deliberately uses the adjacent ports so both can run.
+# The noVNC image is the same one used by `docker compose up`.
+pentium-vnc: $(IMG) $(APPSIMG)
+	@test ! -r $(PENTIUM_VNC_STATE_DIR)/pentium.pid || ! kill -0 $$(cat $(PENTIUM_VNC_STATE_DIR)/pentium.pid) 2>/dev/null || { echo "Pentium VNC is already running; use make pentium-vnc-stop first."; exit 1; }
+	@test -z "$$(docker ps -aq -f name=^os8088-pentium-novnc$$)" || { echo "The Pentium noVNC proxy already exists; use make pentium-vnc-stop first."; exit 1; }
+	@mkdir -p $(PENTIUM_VNC_STATE_DIR)
+	@setsid -f env BOX="$(BOX)" BOXROM="$(BOXROM)" PENTIUM_VNC_PORT="$(PENTIUM_VNC_PORT)" PENTIUM_VNC_STATE_DIR="$(PENTIUM_VNC_STATE_DIR)" ./docker/run-pentium-vnc.sh >$(PENTIUM_VNC_STATE_DIR)/launcher.log 2>&1
+	@docker run -d --name os8088-pentium-novnc --network host os8088-novnc websockify --web=/usr/share/novnc $(PENTIUM_NOVNC_PORT) 127.0.0.1:$(PENTIUM_VNC_PORT)
+	@echo "Pentium noVNC: http://127.0.0.1:$(PENTIUM_NOVNC_PORT)/vnc.html?autoconnect=true"
+
+pentium-vnc-stop:
+	@PENTIUM_VNC_STATE_DIR="$(PENTIUM_VNC_STATE_DIR)" ./docker/stop-pentium-vnc.sh
+	@docker stop os8088-pentium-novnc >/dev/null 2>&1 || true
+	@docker rm os8088-pentium-novnc >/dev/null 2>&1 || true
 
 # NOTHING IN build/ IS TRACKED, and that is a decision rather than an accident.
 #

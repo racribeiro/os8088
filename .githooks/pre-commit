@@ -18,7 +18,7 @@ if ! command -v gitleaks >/dev/null 2>&1; then
 	exit 0
 fi
 
-if ! gitleaks git --staged --redact --no-banner; then
+if ! gitleaks protect --staged --redact --no-banner; then
 	printf '\n\033[31mCommit blocked: gitleaks flagged credential-shaped data above.\033[0m\n'
 	printf '  If the secret is real, rotate it — do not just unstage it.\n'
 	printf '  If it is a false positive, add a rule to .gitleaksignore or append\n'

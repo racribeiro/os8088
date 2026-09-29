@@ -1,0 +1,32 @@
+services:
+  os8088:
+    build: .
+    container_name: os8088-vnc
+    volumes:
+      - os8088-build:/workspace/build
+    ports:
+      - "${VNC_BIND_ADDRESS:-0.0.0.0}:${VNC_PORT:-5900}:5900"
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          python3 -c "import socket; socket.create_connection(('127.0.0.1', 5900), 2).close()"
+      interval: 2s
+      timeout: 2s
+      retries: 5
+      start_period: 2m
+    restart: unless-stopped
+
+  novnc:
+    build:
+      context: .
+      dockerfile: Dockerfile.novnc
+    depends_on:
+      os8088:
+        condition: service_healthy
+    ports:
+      - "${NOVNC_BIND_ADDRESS:-0.0.0.0}:${NOVNC_PORT:-6080}:6080"
+    restart: unless-stopped
+
+volumes:
+  os8088-build:
